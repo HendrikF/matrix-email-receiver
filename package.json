@@ -1,0 +1,21 @@
+{
+  "name": "matrix-email-bot",
+  "version": "0.0.0",
+  "description": "",
+  "main": "index.js",
+  "scripts": {
+    "test": " "
+  },
+  "repository": {
+    "type": "git",
+    "url": " "
+  },
+  "author": "",
+  "license": "MIT",
+  "dependencies": {
+    "mailparser": "^0.6.1",
+    "matrix-js-sdk": "0.6.1",
+    "q": "^1.4.1",
+    "smtp-server": "^1.15.0"
+  }
+}
