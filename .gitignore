@@ -1,3 +1,4 @@
 .Trash*
 node_modules/
 *.yaml
+*.db

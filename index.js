@@ -1,71 +1,98 @@
-var Sdk = require("matrix-js-sdk");
-var MailParser = require("mailparser").MailParser;
+var Bridge = require('matrix-appservice-bridge').Bridge;
+var MailParser = require('mailparser').MailParser;
 var Q = require('q');
 var SMTPServer = require('smtp-server').SMTPServer;
 
-ROOM_ID = '';
+DOMAIN = '';
+HOMESERVER = 'http://' + DOMAIN + ':8448';
+ROOM_ID = '!<insert here>:' + DOMAIN;
+REGISTRATION = 'email-bot.yaml';
+VIRTUAL_USER_PREFIX = '@email_';
+
 IMAGE_TYPES = ['image/jpeg', 'image/png'];
 
-var myUserId = "";
-var myAccessToken = "";
-var matrix_client = Sdk.createClient({
-    baseUrl: "",
-    accessToken: myAccessToken,
-    userId: myUserId
+var bridge = new Bridge({
+    homeserverUrl: HOMESERVER,
+    domain: DOMAIN,
+    registration: REGISTRATION,
+    controller: {
+        onUserQuery: function(queriedUser) {
+            console.log('User ' + queriedUser + ' queried');
+            return {};
+        },
+        onEvent: function(request, context) {}
+    }
 });
+bridge.run(8010); //config object is not used
 
-matrix_client.joinRoom(ROOM_ID).done(function(room) {
-    console.log("Joined %s", ROOM_ID);
-}, function(err) {
-    console.log("Could not join %s: %s", ROOM_ID, err);
-});
-
-matrix_client.startClient();
-
-function nop() {}
+var bot_intent = bridge.getIntent();
 
 function process_mail(mail) {
-    body = mail.from[0].name + "\n";
-    body += mail.subject + "\n";
+    body = mail.subject + '\n';
     body += mail.text;
-    html_body = "<strong>" + mail.from[0].name + "</strong>\n";
-    html_body += "<strong>" + mail.subject + "</strong>\n";
+    html_body = '<strong>' + mail.subject + '</strong>\n';
     html_body += mail.text;
     
     body = body.trim();
     html_body = html_body.trim();
     
-    html_body = html_body.replace(/\n/g, "<br />");
+    html_body = html_body.replace(/\n/g, '<br />');
+    
+    var from = mail.from[0];
+    var localpart = VIRTUAL_USER_PREFIX;
+    var display_name = '<no address>';
+    if (from.address) {
+        display_name = from.address;
+        localpart += from.address.replace('@', '=')
+    } else {
+        localpart += 'anonymous';
+    }
+    if (from.name) {
+        display_name = from.name + ' (' + display_name + ')';
+    }
+    var intent = bridge.getIntent(localpart + ':' + DOMAIN);
+    intent.setDisplayName(display_name);
     
     upload_promises = [];
     
     if (mail.attachments) {
         mail.attachments.forEach(function(attachment) {
-            upload_promises.push(matrix_client.uploadContent({
+            upload_promises.push(bot_intent.getClient().uploadContent({
                 'name': attachment.fileName,
                 'type': attachment.contentType,
                 'stream': attachment.content
             }).then(function(resp) {
-                //console.log(resp);
                 var content_uri = JSON.parse(resp).content_uri; // <-- strange?!?
                 attachment.content_uri = content_uri;
-                //console.log(attachment);
             }));
         });
     }
     
     Q.all(upload_promises).then(function() {
-        matrix_client.sendHtmlMessage(ROOM_ID, body, html_body).then(nop, console.log);
+        intent.sendMessage(ROOM_ID, {
+            'msgtype': 'm.text',
+            'body': body,
+            'format': 'org.matrix.custom.html',
+            'formatted_body': html_body
+        }).catch(console.log);
         if (mail.attachments) {
             mail.attachments.forEach(function(attachment) {
                 if (IMAGE_TYPES.indexOf(attachment.contentType) > -1) {
-                    matrix_client.sendNotice(ROOM_ID, attachment.fileName + ":").then(nop, console.log);
-                    matrix_client.sendImageMessage(ROOM_ID, attachment.content_uri, {
-                        'mimetype': attachment.contentType,
-                        'size': attachment.length
-                    }, attachment.fileName).then(nop, console.log);
+                    intent.sendMessage(ROOM_ID, {
+                        'msgtype': 'm.notice',
+                        'body': attachment.fileName + ':'
+                    }).catch(console.log);
+                    intent.sendMessage(ROOM_ID, {
+                        'msgtype': 'm.image',
+                        'body': attachment.fileName,
+                        'url': attachment.content_uri,
+                        'info': {
+                            'mimetype': attachment.contentType,
+                            'size': attachment.length
+                        }
+                    }).catch(console.log);
                 } else {
-                    matrix_client.sendMessage(ROOM_ID, {
+                    intent.sendMessage(ROOM_ID, {
                         'body': attachment.fileName,
                         'url': attachment.content_uri,
                         'filename': attachment.fileName,
@@ -74,12 +101,11 @@ function process_mail(mail) {
                             'mimetype': attachment.contentType,
                             'size': attachment.length
                         }
-                    }).then(nop, console.log);
+                    }).catch(console.log);
                 }
             });
         }
     }, console.log);
-    
 }
 
 var smtp_server = new SMTPServer({
@@ -91,7 +117,7 @@ var smtp_server = new SMTPServer({
         var mailparser = new MailParser({
             defaultCharset: 'utf-8'
         });
-        mailparser.on("end", process_mail);
+        mailparser.on('end', process_mail);
         stream.pipe(mailparser);
     },
 });
