@@ -14,9 +14,7 @@
   "license": "MIT",
   "dependencies": {
     "mailparser": "^0.6.1",
-    "matrix-appservice": "^0.3.2",
     "matrix-appservice-bridge": "^1.3.0",
-    "matrix-js-sdk": "0.6.1",
     "q": "^1.4.1",
     "smtp-server": "^1.15.0"
   }
